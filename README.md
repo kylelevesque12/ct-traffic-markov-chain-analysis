@@ -6,7 +6,7 @@ This project was completed by Kyle Levesque, Eashan Hatti, and Wyatt Lake for a 
 
 ## Overview
 
-Using Connecticut traffic flow data, this project constructs a transition matrix where each state represents a road location or node. Transition probabilities are based on observed average daily traffic flow between locations. The project then uses Markov chain methods to analyze long-run traffic behavior and short-run route outcomes.
+Using Connecticut traffic flow data, this project constructs a transition matrix where each state represents a road location or node. Transition probabilities are based on observed average daily traffic flow between locations. The project then explains and applies Markov chain methods to analyze long-run traffic behavior and short-run route outcomes.
 
 ## Methods
 
