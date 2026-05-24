@@ -2,7 +2,7 @@
 
 This project applies Markov chains and steady-state analysis to Connecticut traffic flow data. The goal is to identify routes where cars are most likely to be in the long run and to estimate likely destinations after several transitions from a given starting location.
 
-This project was completed by Kyle Levesque, Eashan Hatti, and Wyatt Lake for a linear algebra course.
+This project was completed by Kyle Levesque, Eashan Hatti, and Wyatt Lake for a linear algebra course at Yale University.
 
 ## Overview
 
@@ -25,7 +25,7 @@ The steady-state analysis identifies the road locations most likely to be occupi
 
 - `traffic_markov_chain_report.pdf`: Final written report
 - `traffic_markov_chain_analysis.Rmd`: R Markdown source file
-- `data/traffic_2023.csv`: Traffic flow dataset used in the analysis
+- `data/ct_traffic_data_2023.csv`: Traffic flow dataset used in the analysis
 - `figures/`: Maps generated from the analysis
 
 ## Data Source
