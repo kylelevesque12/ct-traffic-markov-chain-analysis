@@ -1,0 +1,288 @@
+---
+title: "Traffic Analysis R Analysis"
+output: html_document
+date: "2025-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Reading in the data
+traffic2023 <- read.csv("/Users/kylelevesque/Downloads/data 2/ct_traffic_data_2023.csv")
+head(traffic2023)
+dim(traffic2023)
+summary(traffic2023$aadt)
+
+```
+
+
+```{r}
+#Just getting a feel for the data
+length(unique(traffic2023$route_id))
+sum(duplicated(traffic2023$route_id))
+#There are some duplicated routes so can't really so can't really analyze by route_id but instead coordinates
+
+```
+
+```{r}
+#This code just gets the latitude and longitude into coordinates
+traffic2023$from <- paste(traffic2023$slat, traffic2023$slon, sep = ",")
+traffic2023$to <- paste(traffic2023$elat, traffic2023$elon, sep = ",")
+
+#This gets the amount of traffic flow from one specific location to another specific location
+traffic_flow <- aggregate(aadt ~ from + to, data = traffic2023, sum)
+
+#This is the total amount of traffic flow from one specific location to any location 
+total_outbound <- aggregate(aadt ~ from, data = traffic_flow, sum)
+
+#This merges the total_outbound data with the traffic_flow data 
+traffic_flow <- merge(traffic_flow, total_outbound, by = "from", suffixes = c("_to", "_total"))
+
+traffic_flow$turn_prob <- traffic_flow$aadt_to / traffic_flow$aadt_total
+
+# Step 5: View results
+head(traffic_flow)
+```
+
+
+```{r}
+#Get all unique "nodes". This is takes all of the possible coordinate combinations from the from and to columns and gets the unique locations.  
+nodes <- unique(c(traffic_flow$from, traffic_flow$to))
+length(nodes)
+dim(traffic_flow)
+#This creates an empty stochastic matrix with the nodes
+n <- length(nodes)
+P <- matrix(0, nrow = n, ncol = n)
+rownames(P) <- nodes
+colnames(P) <- nodes
+#This fills in the matrix with the corresponding turn probability data 
+for (i in 1:nrow(traffic_flow)) {
+  from_node <- traffic_flow$from[i]
+  to_node <- traffic_flow$to[i]
+  prob <- traffic_flow$turn_prob[i]
+  P[from_node, to_node] <- prob
+}
+
+#This gets the row sums to make sure that they add up to 1 
+row_sums <- rowSums(P)
+summary(row_sums)
+
+#There appears to be some dead ends as the mean across rows is not 1. Therefore, there must be some locations that do not go anywhere. 
+dead_ends <- rownames(P)[rowSums(P) == 0]
+length(dead_ends)
+#There appears to be 1090 dead ends out of 5333 intersections, which could be a little high 
+#write.csv(P, file = "/Users/kylelevesque/Downloads/stochastic_matrix.csv", row.names = TRUE)
+```
+
+```{r}
+dead_end_flag <- as.numeric(rowSums(P) == 0)
+P_with_col <- cbind(P, is_dead_end = dead_end_flag)
+dim(P_with_col)
+new_row <- rep(0, ncol(P_with_col))
+P_augmented <- rbind(P_with_col, new_row)
+rownames(P_augmented)[nrow(P_augmented)] <- "dead_end"
+P_augmented[nrow(P_augmented), ncol(P_augmented)] <- 1
+summary(rowSums(P_augmented))
+dim(P_augmented)
+#write.csv(P_augmented, file = "/Users/kylelevesque/Downloads/MATH 222/stochastic_matrix2.csv", row.names = T)
+```
+```{r}
+#Markov Chain/Steady State
+eig <- eigen(t(P_augmented))
+idx <- which.max(Re(eig$values))
+steady_state <- Re(eig$vectors[, idx])
+steady_state <- steady_state / sum(steady_state)
+head(steady_state)
+sum(steady_state)
+
+
+```
+
+```{r}
+node <- rownames(P_augmented)
+steady_state_df <- data.frame(
+  node = node,
+  steady_state_prob = steady_state
+)
+#write.csv(steady_state_df, file = "/Users/kylelevesque/Downloads/MATH 222/steady_state_df.csv", row.names = T)
+steady_state_df <- steady_state_df[order(-steady_state_df$steady_state), ]
+steady_state_df$lon <- as.numeric(sub(",.*", "", steady_state_df$node))
+steady_state_df$lat <- as.numeric(sub(".*,", "", steady_state_df$node))
+
+
+```
+
+```{r}
+library(maps)
+library(mapproj)
+```
+
+
+```{r}
+# Plot a base map of Connecticut
+png("connecticut_top10_map.png", width = 1200, height = 900)
+map("county", "connecticut", col = "white", fill = TRUE)
+title("Top 10 Busiest Intersections in Connecticut")
+points(jitter(steady_state_df$lon[1:10], amount = 0.005), jitter(steady_state_df$lat[1:10], amount = 0.005), col = rainbow(10), pch = 19, cex = 2)
+dev.off()
+```
+
+
+```{r}
+library(dplyr)
+node_route_df <- traffic2023 %>%
+  select(route_id, from, to) %>%
+  tidyr::pivot_longer(cols = c(from, to), names_to = "type", values_to = "node") %>%
+  distinct()
+node_route_df
+```
+
+```{r}
+steady_state_with_routes <- merge(steady_state_df, node_route_df, by = "node", all.x = TRUE)
+top10_with_routes <- merge(steady_state_df[1:10, ], steady_state_with_routes[, c("node", "route_id")], by = "node")
+top10_with_routes_unique <- top10_with_routes[!duplicated(top10_with_routes$node), ]
+
+```
+
+```{r}
+png("CT_busiest_intersections.png", width = 1200, height = 900)
+
+map("county", "connecticut", col = "lightgray", fill = TRUE, bg = "white")
+title("Top 10 Busiest Routes in Connecticut in the Long Term")
+
+# Create a color palette for route_ids
+# Generate a unique color for each route_id
+unique_route_ids <- unique(top10_with_routes$route_id)
+colors <- rainbow(length(unique_route_ids))
+
+# Assign colors to the routes in your dataframe
+top10_with_routes$color <- colors[match(top10_with_routes$route_id, unique_route_ids)]
+
+# Plot the top 10 busiest intersections with the assigned colors
+points(jitter(top10_with_routes$lon, amount = 0.005), jitter(top10_with_routes$lat, amount = 0.005), col = top10_with_routes$color, pch = 19, cex = 1.5)
+
+# Add a legend with route_id and the corresponding color
+legend("topleft", 
+       legend = unique_route_ids, 
+       fill = colors, 
+       title = "Route ID", 
+       cex = 0.8)
+
+dev.off()
+```
+
+```{r}
+#Start at a random road and see probability of ending up at different nodes
+dead_ends <- rowSums(P) == 0
+valid_nodes <- rownames(P)[!dead_ends]
+
+set.seed(500)  # for reproducibility
+start_node <- sample(valid_nodes, 1)
+start_index <- which(rownames(P_augmented) == start_node)
+```
+
+```{r}
+v <- rep(0, nrow(P_augmented))
+v[start_index] <- 1
+```
+
+```{r}
+steps <- 3
+v_current <- v
+
+for (i in 1:steps) {
+  v_current <- v_current %*% P_augmented
+}
+```
+
+```{r}
+results <- data.frame(
+  node = rownames(P_augmented),
+  probability = as.vector(v_current)
+)
+
+results_sorted <- results[order(-results$probability), ]
+random_prob_results <- results_sorted[results_sorted$probability != 0, ]
+
+random_prob_results$lon <- as.numeric(sub(",.*", "", random_prob_results$node))
+random_prob_results$lat <- as.numeric(sub(".*,", "", random_prob_results$node))
+
+```
+```{r}
+from_matches <- merge(random_prob_results, traffic2023[, c("route_id", "from")],
+                      by.x = "node", by.y = "from", all.x = TRUE)
+
+# Match to_node
+to_matches <- merge(random_prob_results, traffic2023[, c("route_id", "to")],
+                    by.x = "node", by.y = "to", all.x = TRUE)
+
+# Combine both matches
+combined_matches <- rbind(from_matches, to_matches)
+
+# Remove duplicates (some nodes may appear in both from and to)
+random_path <- combined_matches[c(1, 2, 7, 8), ]
+
+#random_path <- write.csv(random_path, file = "/Users/kylelevesque/Downloads/MATH 222/random_path.csv", row.names = T)
+
+```
+
+
+```{r}
+unique_route <- unique(random_path$route_id[1:3])
+colors <- rainbow(length(unique_route_ids))
+
+random_path$color <- colors[match(random_path$route_id, unique_route)]
+
+start_lon <- as.numeric(sub(",.*", "", start_node))
+start_lat <- as.numeric(sub(".*,", "", start_node))
+```
+
+
+```{r}
+png("MostProbableDestinations.png", width = 600, height = 800)
+library(maps)
+
+map("county", "connecticut,fairfield", col = "lightblue", fill = TRUE, lwd = 0.5)
+title("Most Probable Destinations after 3 Turns")
+
+points(random_path$lon[1:3], random_path$lat[1:3], pch = 19, col = random_path$color, cex = 2)
+text(random_path$lon, random_path$lat, 
+     labels = round(random_path$probability, 3), pos = 4, cex = 0.7, col = "black")
+
+points(start_lon, start_lat, pch = 8, col = "orange", cex = 2)
+text(start_lon, start_lat, labels = "Start", pos = 2, cex = 1, col = "orange")
+
+legend("topright", 
+       legend = unique_route, 
+       fill = colors, 
+       title = "Route ID", 
+       cex = 0.8)
+
+legend("bottomright", 
+       legend = paste("Dead End Probability:", round(random_path$probability[4], 3)),
+       bty = "o",
+       cex = 0.8,
+       text.col = "gray20",
+       box.col = "gray40",
+       bg = "white",
+       inset = c(0.02, 0.02)
+)
+
+dev.off()
+```
+
+
+1. Quick statistics: average daily flow
+
+2. Long term probability, multiply matrix a ton of times: good
+
+Have steady_state vector for matrix. Probability that a car will be at a certain intersection in the long run. Have the busiest intersections based on steady state probabilities. 
+
+3. Starting at a random road, what is the probability that will end up on another road: good 
+Have
+
+
+
+
